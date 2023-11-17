@@ -1,0 +1,216 @@
+---
+title: "Regression Modeling for Rental Property Price Prediction"
+author: "Mithirendra Maniam"
+date: "2023-11-15"
+output: html_document
+---
+
+## 1. Introduction
+Renting a property is expensive in KL and Selangor. The purpose of this project is to build a linear regression model to predict the price of a property based on its size and number of bedrooms.
+
+## 2. Data Collection
+Data was obtained from Kaggle. The URL for the dataset is given here: [Property Rental Data] (https://www.kaggle.com/datasets/ariewijaya/rent-pricing-kuala-lumpur-malaysi/download?datasetVersionNumber=5)
+
+This dataset contains information on rent pricing surrounding Kuala Lumpur and Selangor region, Malaysia. The information was scraped from mudah.my.
+
+There are 13 features with one unique ids (ads_id) and one target feature (monthly_rent)
+
+- <code>ads_id</code>: the listing ids (unique)
+- <code>prop_name</code>: name of the building/ property
+- <code>completion_year</code>: completion/ established year of the property
+- <code>monthly_rent</code>: monthly rent in ringgit malaysia (RM)
+- <code>location</code>: property location in Kuala Lumpur region
+- <code>property_type</code>:property type such as apartment, condominium, flat, duplex, studio, etc
+- <code>rooms</code>: number of rooms in the unit
+- <code>parking</code>: number of parking space for the unit
+- <code>bathroom</code>: number of bathrooms in the unit
+- <code>size</code>: total area of the unit in square feet
+- <code>furnished</code>: furnishing status of the unit (fully, partial, non-furnished)
+- <code>facilities</code>: main facilities available
+- <code>additional_facilities</code>: additional facilities (proximity to attraction area, mall, school, shopping, railways, etc)
+
+Reading of data into R
+```{r}
+library(dplyr)
+
+# Reading data from csv file
+prop_data <- read.csv("mudah-apartment-kl-selangor.csv")
+```
+
+
+
+
+## 3. Data Cleaning
+
+Check the dimensions of the data set.
+
+```{r}
+# Check the number of observations and columns in dataset
+dim(prop_data)
+```
+
+Next we check the structure of the dataset.
+
+```{r}
+# Looking at structure of dataset
+str(prop_data)
+```
+
+We are looking for 3 variables to perform the prediction, namely <code>monthly_rent</code>, <code>size</code> and <code>rooms</code>. From the structure of the dataset above, it can be seen that all 3 variables are character classes. We should subset the columns in a new variable and convert this character variables into numeric variables so that we can run a regression model.
+
+Also added the <code>property type</code> column to be able to choose the type of property, to allow for more accurate prediction.
+
+```{r}
+# Subset a few columns to create a new subset dataset
+subprop_data <- prop_data[ , c(4,6,7,10)]
+str(subprop_data)
+```
+
+
+### 3.1 Property Size Data
+
+Below are the steps to prepare the Size column.
+
+```{r, results='hide'}
+# Change column from character to numeric
+library(stringr)
+subprop_data$size <- str_replace(subprop_data$size, " sq.ft.", "")
+subprop_data$size <- as.numeric(subprop_data$size)
+str(subprop_data)
+```
+
+
+### 3.2 Property Room Number
+
+Below are the steps to prepare the Room column.
+
+```{r, results='hide'}
+# Change column from character to numeric
+subprop_data$rooms <- as.numeric(subprop_data$rooms)
+str(subprop_data)
+```
+
+### 3.3 Property Monthly Rent
+
+Below are the steps to prepare the monthly_rent column.
+
+```{r, results='hide'}
+# Change column from character to numeric
+subprop_data$monthly_rent <- str_replace(subprop_data$monthly_rent, " per month", "")
+subprop_data$monthly_rent <- str_replace(subprop_data$monthly_rent, "RM ", "")
+subprop_data$monthly_rent <- str_replace(subprop_data$monthly_rent, " ", "")
+```
+
+Convert monthly_rent column to numeric values.
+
+```{r}
+# Convert monthly-rent column to numeric type
+subprop_data$monthly_rent <- as.numeric(subprop_data$monthly_rent)
+str(subprop_data)
+```
+
+### 3.4 Property Type
+
+Converting the Property Type column into factors and finding unique levels within column.
+
+```{r}
+
+# Remove data with weird property_type description
+subprop_data[subprop_data$property_type == "Condo / Services residence / Penthouse / Townhouse", ]
+subprop_data <- subprop_data[-3669, ]
+
+# Change column from character to numeric
+subprop_data$property_type <- factor(subprop_data$property_type)
+levels(subprop_data$property_type)
+
+```
+
+## 4. Exploratory Data Analysis
+
+```{r}
+# Remove NAs
+subprop_data <- na.omit(subprop_data)
+
+# Drop unused levels after removing NAs
+subprop_data <- droplevels(subprop_data)
+
+# Summary statistics
+summary(subprop_data$size)
+summary(subprop_data$rooms)
+summary(subprop_data$monthly_rent)
+
+# Checking for outliers
+tail(sort(subprop_data$size),20)
+tail(sort(subprop_data$rooms),20)
+tail(sort(subprop_data$monthly_rent),50)
+
+
+# Checking and deleting size column outliers
+subprop_data[subprop_data$size > 40000,]
+subprop_data <- subprop_data[-c(1715,2623),]
+
+# Summary statistics
+summary(subprop_data$size)
+
+# Checking and deleting monthly_rent column > 50000
+subprop_data <- subprop_data[subprop_data$monthly_rent < 20000,]
+
+# Check the distribution of monthly rent
+plot(subprop_data$size, subprop_data$monthly_rent,
+     xlim = c(0,2000),
+     xlab = "Size in sq feet",
+     ylab = "Monthly Rent (in RM)",
+     pch = 19,
+     col = subprop_data$property_type,
+     main = "Monthly Rent by Size of Property (in Sq Feet)")
+legend("topleft",
+       legend = levels(subprop_data$property_type),
+       pch = 19,
+       col = subprop_data$property_type)
+
+plot(subprop_data$room, subprop_data$monthly_rent,
+     xlab = "Number of rooms",
+     ylab = "Monthly Rent (in RM)",
+     pch = 19,
+     col = subprop_data$property_type,
+     main = "Monthly Rent by Number of Rooms in Property")
+legend("topleft",
+       legend = levels(subprop_data$property_type),
+       pch = 19,
+       col = subprop_data$property_type)
+
+# Check mean for each property type
+tapply(subprop_data$monthly_rent, subprop_data$property_type, mean)
+
+```
+
+## 5. Data Modeling and Prediction
+
+Building a linear regression model using size and rooms to predict monthly rent.
+
+```{r}
+# Build a linear regression model
+model <- lm(monthly_rent ~ rooms + size, data=subprop_data)
+summary(model)
+```
+
+## 6. Outcome - Predicting Price based on input of size and rooms
+
+```{r}
+# Function for predicting property rental
+rental_predictor <- function(type, size, rooms) {
+  subprop_type <- subprop_data[subprop_data$property_type == type,  ]
+  model <- lm(monthly_rent ~ rooms + size, data=subprop_type)
+  newdata <- data.frame(size, rooms)
+  prediction <- predict(model, newdata)
+  print(paste("The predicted rental price for a", type, "property with", rooms, "rooms and a size of", size,"sq feet is: ~RM", round(prediction,0)))
+}
+```
+
+```{r}
+rental_predictor("Apartment",1200, 3)
+rental_predictor("Condominium",1000,3)
+rental_predictor("Studio",400,1)
+```
+```
+
